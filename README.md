@@ -1,11 +1,11 @@
-# 📊 Customer Churn Analysis & Dynamic Web Scraping
+# Telecom Customer Churn Analysis & Dynamic Web Scraping
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python)
 ![Pandas](https://img.shields.io/badge/Pandas-Data_Manipulation-150458?logo=pandas)
 ![Plotly](https://img.shields.io/badge/Plotly-Interactive_Charts-3F4F75?logo=plotly)
 ![Selenium](https://img.shields.io/badge/Selenium-Web_Scraping-43B02A?logo=selenium)
 
-## 📌 Overview
+## Overview
 This repository contains a comprehensive Data Science project divided into two main phases. The first phase focuses on analyzing customer behavior and predicting churn in the Iranian telecommunications sector. The second phase features an automated, object-oriented web scraper designed to extract real-time automotive data from Bama.ir.
 
 ##  Key Features
