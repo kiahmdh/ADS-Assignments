@@ -14,6 +14,11 @@ This repository contains a comprehensive Data Science project divided into two m
 * **Exploratory Data Analysis (EDA):** Deep dive into the Iranian Churn Dataset to uncover hidden patterns and customer behaviors.
 * **Data Visualization:** High-quality, interactive visualizations using `Plotly`, `Seaborn`, and `Matplotlib` to illustrate churn distribution, age groups, and usage frequencies.
 * **Feature Engineering:** Advanced feature creation, Mutual Information analysis, and Dimensionality Reduction (PCA) to prepare data for machine learning models.
+* ## Dataset Information
+The analysis is based on the **Iranian Churn Dataset**, which contains usage patterns of 3,150 customers over a 9-month period.
+
+* **Source:** [Kaggle - Customer Churn Dataset (by Roy Jafari)](https://www.kaggle.com/datasets/royjafari/customer-churn/data)[cite: 1]
+* **Target Variable:** `Churn` (1 if the customer left, 0 otherwise).
 
 ### Part 2: Bama.ir Web Scraper 
 * **Dynamic Scraping:** Uses Python's `requests` with robust retry mechanisms to interact with hidden frontend APIs.
