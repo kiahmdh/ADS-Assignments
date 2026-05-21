@@ -117,7 +117,3 @@ data, but a one-line summary:
   **PR-AUC** are the right primaries.
 * Goalkeepers are ~11 % of positions ⇒ **F1-Macro** (each class weighted
   equally) prevents the majority classes from drowning out GK performance.
-
-گگگ
-گگگگ
-گ
