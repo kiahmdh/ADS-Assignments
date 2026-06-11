@@ -117,3 +117,217 @@ data, but a one-line summary:
   **PR-AUC** are the right primaries.
 * Goalkeepers are ~11 % of positions ⇒ **F1-Macro** (each class weighted
   equally) prevents the majority classes from drowning out GK performance.
+# Assignment 2 : — Deep Learning
+  # Assignment 3 — Deep Learning
+---
+
+## Overview
+
+This notebook implements all four required deep-learning components — **MLP, CNN, RNN, and Transformer** — plus the bonus industry research review (Part 5), in a single, clean, reproducible Jupyter notebook. Each section follows the same discipline: one variable changes at a time, every experiment is followed by a written analysis, and all results feed into a unified summary table at the end.
+
+**Framework: PyTorch** is used throughout. Its define-by-run dynamic graph makes the training loop fully explicit Python — every gradient, every regularization term, every gradient-clipping call is visible and debuggable. This suits an assignment whose primary goal is understanding mechanisms rather than shipping a product. The same generic `train_tabular` / `train_cnn` / `train_rnn` helpers are reused across every experiment so comparisons are truly controlled.
+
+**Total runtime:** ~25–40 minutes on a free Colab T4 GPU.
+
+---
+
+## Structure
+
+```
+Assignment3_DeepLearning.ipynb
+│
+├── Shared setup (cells 1–2)
+│   └── set_seed, device, RESULTS logger, train_tabular, plot helpers
+│
+├── 1. MLP — California Housing
+│   ├── 1.A  Baseline (binary classification + regression)
+│   ├── 1.B1 Training & Optimization experiments
+│   ├── 1.B2 Architecture & Representation experiments
+│   ├── 1.B3 Regularization & Stability experiments
+│   └── 1.C  Discussion Questions
+│
+├── 2. CNN — CIFAR-10
+│   ├── 2.A  Baseline 3-block CNN (training curves + test accuracy)
+│   ├── 2.B  Component experiments (kernel, stride, filters, pooling, depth)
+│   ├── 2.C  Data augmentation
+│   ├── 2.D  Transfer learning — pretrained ResNet-18
+│   ├── Bonus  Error analysis + feature-map visualization
+│   └── 2.E  Discussion Question
+│
+├── 3. RNN — IMDB sentiment
+│   ├── 3.A  Vanilla RNN vs LSTM vs GRU
+│   ├── 3.B  Component experiments
+│   └── 3.C  Discussion Question
+│
+├── 4. Transformer — IMDB sentiment
+│   ├── 4.A  DistilBERT fine-tuning
+│   ├── Transformer vs RNN/LSTM comparison bar chart
+│   └── 4.C  Discussion Questions (all 7 sub-questions answered)
+│
+├── 5. (Bonus) Industry research review
+│
+└── Final summary table + Conclusions
+```
+
+---
+
+## Datasets
+
+| Section | Dataset | Why chosen |
+|---------|---------|-----------|
+| MLP | **California Housing** (~20.6k districts, 8 features) | Large enough that optimization choices visibly separate; naturally supports both classification (above-median price?) and regression (predict price) from one dataset |
+| CNN | **CIFAR-10** (60k 32×32 images, 10 classes) | The standard small-but-real image benchmark — hard enough that architecture choices matter, small enough for fast Colab experiments |
+| RNN + Transformer | **IMDB movie reviews** (binary sentiment) | A real text dataset is required since the tabular data is not sequential; using the same data for Sections 3 and 4 makes the RNN-vs-Transformer comparison fully controlled |
+
+---
+
+## Part 1 — MLP: What is covered
+
+### 1.A Core Tasks
+- **Binary classifier** (`BCEWithLogitsLoss`) — train/val loss curves and final test accuracy
+- **Regression** (`MSELoss` on standardized target) — train/val curves, R², RMSE back-converted to dollars
+
+### 1.B Network Tuning (one factor at a time)
+
+| Category | Experiments |
+|----------|-------------|
+| **Optimizers** | Plain SGD · SGD + Momentum (0.9) · Adam — same architecture, same LR |
+| **Learning rate** | lr ∈ {1e-5, 1e-3, 0.5} — "too small / good / too large" plotted on log scale |
+| **LR scheduling** | Constant · `StepLR` (×0.2 every 8 epochs) · `CosineAnnealingLR` · `ReduceLROnPlateau` |
+| **Batch size** | bs ∈ {16, 128, 2048} — accuracy and wall-clock times both reported |
+| **Early stopping + epochs** | Wide unregularized net for 80 epochs with and without `patience=5`; red vertical line marks early-stop point |
+| **Depth** | 1 / 2 / 4 / 8 hidden layers (width fixed at 64) |
+| **Width** | 8 / 64 / 512 neurons per layer (depth fixed at 2) |
+| **Activations** | ReLU · LeakyReLU · Tanh · Sigmoid on a 4-layer net |
+| **Weight initialization** | Xavier · He (Kaiming) · Naive random (std=0.5) — run with SGD to expose init effects |
+| **Batch Normalization** | With vs without, under an aggressively large LR that makes the plain net unstable |
+| **Regularization** | No reg · L2 (weight decay 1e-3) · L1 (manual loss term) · Activity reg (L2 on activations) · Dropout 0.3 · Gradient clipping 0.5 — all on an overparameterized 2×256 net; generalization gap table included |
+
+Every experiment is followed by a written analysis explaining *why* the curves look the way they do.
+
+### 1.C Discussion Questions
+1. Why are neural networks so powerful?
+2. Why does training become more difficult as we go deeper?
+3. *(Optional)* What unique benefits does depth provide over width? (Universal Approximation Theorem discussed)
+
+---
+
+## Part 2 — CNN: What is covered
+
+### 2.A Baseline CNN
+Architecture: 3 conv blocks (32 → 64 → 128 filters), 3×3 kernels, max-pool 2×2, FC-128, 10-class output. Training/validation curves, test accuracy, and training time all reported.
+
+### 2.B Component Experiments
+All run through `run_component()` with the same seed; results presented as a table showing **params, final train loss, best val accuracy, training time**:
+
+| Component | Values tested |
+|-----------|--------------|
+| Kernel size | 3×3 · 5×5 · 7×7 |
+| Stride | 1 · 2 |
+| Number of filters | 8 · 32 · 64 (base) |
+| Pooling type | max-pool 2×2 · avg-pool 2×2 |
+| Pooling window size | max-pool 2×2 · max-pool 4×4 |
+| Network depth | 1 · 2 · 3 · 4 conv blocks |
+
+The analysis after the table discusses model capacity, overfitting vs underfitting, and training time for each component — as required.
+
+### 2.C Data Augmentation
+Pipeline: `RandomCrop(32, padding=4)` + `RandomHorizontalFlip` + `ColorJitter(brightness, contrast)` + normalization. Side-by-side loss and accuracy curves (plain vs augmented, 12 epochs each). Analysis explains invariance-based generalization benefit and notes that normalization is an optimization aid, not a regularizer.
+
+### 2.D Transfer Learning — ResNet-18
+- **Model chosen:** `resnet18` pretrained on ImageNet. Reasons stated: smallest standard ResNet, skip connections ensure robust fine-tuning, ImageNet edge/texture priors transfer well to natural images.
+- **Strategy:** Feature extraction — entire convolutional backbone frozen (`requires_grad = False`), only the new 10-class linear head trained.
+- **Trainable params:** ~5k out of ~11M total.
+- Inputs resized 32 → 224 px; ImageNet normalization applied.
+- Analysis compares feature extraction vs fine-tuning tradeoffs and states a rule of thumb.
+- Comparison table: own CNN · augmented CNN · ResNet-18 feature extraction.
+
+### Bonus
+- **Error analysis:** 8 misclassified test images with true/predicted labels; analysis shows errors are *systematic* (animal ↔ animal, vehicle ↔ vehicle confusions at 32×32 resolution).
+- **Feature-map visualization:** first and last conv layer feature maps plotted via `register_forward_hook`; ties to "edges → textures → parts" abstraction hierarchy.
+
+### 2.E Discussion Question
+Full answer covering local connectivity, weight sharing / translation equivariance, pooling invariance, the parameter explosion an MLP would need, and why SGD cannot find that solution from realistic data.
+
+---
+
+## Part 3 — RNN: What is covered
+
+### 3.A Three Models
+Vanilla RNN · LSTM · GRU — identical embedding (dim 100), hidden size (128), 4 epochs, same IMDB data, gradient clipping (norm=1.0). Mean-pooling over non-padding timesteps. Validation and test accuracy reported for all three side by side.
+
+### 3.B Component Experiments
+
+| Experiment | Values tested |
+|-----------|--------------|
+| Sequence length × cell type | max_len ∈ {50, 200, 400} for RNN and LSTM — shows where the RNN degrades as length grows |
+| Hidden size | 32 · 128 · 512 (LSTM, len=200) |
+| Number of layers | 1 · 2 (LSTM) |
+| Dropout between recurrent layers | 0.0 · 0.3 (2-layer LSTM) |
+| Bidirectionality | 1-layer LSTM vs bidirectional LSTM |
+
+Results in a table (params, test accuracy, training time). Analysis covers hidden-size capacity, depth in RNNs, dropout placement, and why bidirectionality helps text but cannot help forecasting.
+
+### 3.C Discussion Question
+Full answer: vanishing/exploding gradient mechanics (λ^T formulation), LSTM cell-state additive update equations, forget/input/output gate roles, gradient highway analogy, GRU equivalence with fewer parameters. Tied explicitly to the experimental results.
+
+---
+
+## Part 4 — Transformer: What is covered
+
+### 4.A Fine-tuning DistilBERT
+- **Model:** `distilbert-base-uncased` (~66M parameters) via HuggingFace `transformers`.
+- **Why DistilBERT:** retains ~97% of BERT quality at 40% fewer parameters and ~60% faster inference — the right size for a Colab fine-tune. Stated explicitly in the notebook.
+- **Same IMDB splits as Section 3** — controlled RNN-vs-Transformer comparison.
+- Budget: 3k training reviews, max 256 tokens, 2 epochs, `AdamW` lr=2e-5, `torch.autocast` mixed precision.
+- Per-epoch train loss and validation accuracy printed; test accuracy logged.
+
+### Comparison Chart
+Bar chart: Vanilla RNN · LSTM · GRU · DistilBERT on the **same 2k test set**. Analysis explains the pretraining advantage and the computational cost.
+
+### 4.C Discussion Questions — all seven answered
+1. Main advantages and disadvantages of Transformer-based models
+2. Why do they scale well with data and model size?
+3. Why do they require large computational resources?
+4. What is self-attention, and what problem does it solve?
+5. Why can attention model long-range dependencies more effectively than simple RNNs?
+6. What is multi-head attention, and why does it help?
+7. What is the role of positional encoding?
+
+---
+
+## Part 5 (Bonus) — Industry Research Review
+
+A written review (~600 words) covering:
+
+- **What dominates today:** practitioner surveys (Kaggle State of ML reports, company engineering blogs) consistently show gradient-boosted trees (XGBoost/LightGBM/CatBoost) and linear models dominating production for tabular data; CNNs for vision; Transformers/LLMs for language and the fastest-growing track overall. Since 2023 many teams "use Transformers" via API calls rather than training.
+- **Why GBDTs persist on tabular data:** lower cost, interpretability, regulatory requirements, and the repeated empirical finding that deep learning has not consistently outperformed them on structured tables.
+- **5–10 year prediction:** a two-track equilibrium rather than a replacement — classical models retain their quiet production share for structured decisions; the LLM/foundation-model track absorbs unstructured-data work and the application layer; strongest displacement in language, vision, and document-heavy domains; weakest in high-volume, low-latency tabular scoring.
+
+---
+
+## Reproducibility Notes
+- `set_seed(42)` called before every model construction so all comparisons share initialization.
+- `StandardScaler` / vocabulary built on training data only — no leakage.
+- All results appended to a global `RESULTS` list and printed as a unified DataFrame at the end.
+- GPU auto-detected; all code runs on CPU too (significantly slower for Parts 2 and 4).
+
+---
+
+## How to Run
+
+```bash
+# On Colab, uncomment the install line in cell 1, then run all cells top-to-bottom.
+# Locally:
+pip install torch torchvision datasets transformers scikit-learn pandas matplotlib
+
+jupyter notebook Assignment3_DeepLearning.ipynb
+```
+
+## Key Takeaways
+
+1. **Learning rate is the dominant hyperparameter** — wrong by 2–3 orders of magnitude and everything else is irrelevant. Schedulers turn a high exploratory LR into a well-converged final model.
+2. **Capacity must match data** — in every section, too-small models underfit and too-big ones overfit. The remedy is regularization or more data, not more epochs.
+3. **Architecture = inductive bias** — CNNs embed locality and weight sharing for images; gated RNNs embed additive memory for sequences; Transformers embed direct pairwise access for long-range structure. Each wins precisely because its bias matches its data's geometry.
+4. **Pretraining is the biggest lever of all** — a frozen ResNet-18 (≈5k trainable params) beat the best hand-built CNN; DistilBERT beat the best LSTM on fewer labeled examples. Modern practice is "adapt a pretrained model" far more often than "train from scratch."
+5. **Industry runs on two tracks** — gradient-boosted trees quietly dominate tabular production; LLMs dominate headlines and are rapidly absorbing unstructured-data work. Neither is replacing the other.
