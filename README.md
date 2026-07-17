@@ -336,3 +336,153 @@ jupyter notebook Assignment3_DeepLearning.ipynb
 3. **Architecture = inductive bias** — CNNs embed locality and weight sharing for images; gated RNNs embed additive memory for sequences; Transformers embed direct pairwise access for long-range structure. Each wins precisely because its bias matches its data's geometry.
 4. **Pretraining is the biggest lever of all** — a frozen ResNet-18 (≈5k trainable params) beat the best hand-built CNN; DistilBERT beat the best LSTM on fewer labeled examples. Modern practice is "adapt a pretrained model" far more often than "train from scratch."
 5. **Industry runs on two tracks** — gradient-boosted trees quietly dominate tabular production; LLMs dominate headlines and are rapidly absorbing unstructured-data work. Neither is replacing the other.
+---
+
+# Assignment 4 — Modern Data Science Workflows
+
+![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python)
+![PyTorch](https://img.shields.io/badge/PyTorch-Generative_Models-EE4C2C?logo=pytorch)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-Pipelines-F7931E?logo=scikitlearn)
+![imbalanced-learn](https://img.shields.io/badge/imbalanced--learn-Resampling-792EE5)
+![SHAP](https://img.shields.io/badge/SHAP_·_LIME_·_ELI5-Explainability-11B4C9)
+
+## Overview
+
+A single, reproducible notebook covering **all six parts of the ADS 2026 — Assignment 4 brief plus the bonus**: ML Pipelines, Imbalanced-Data Handling, Variational Autoencoders, GANs, Diffusion Models, and Explainable AI. It follows the same discipline as the earlier assignments — every code block is preceded by a *why* and followed by a *what I learned* reflection (which the brief explicitly requires for full marks), one thing changes at a time, and every experiment ends in a written interpretation rather than a bare number.
+
+**Frameworks:** **PyTorch** for the three generative models and the CNN — its define-by-run graph keeps every training loop explicit and debuggable; **scikit-learn** + **imbalanced-learn** for the cleaning/preprocessing pipelines and all resampling; **SHAP / LIME / ELI5** for model-agnostic explainability.
+
+**Total runtime:** ~10–15 minutes on a free Colab T4 GPU (deliberately kept light — the rubric prefers clarity over big training runs).
+
+---
+
+## Structure
+
+```
+ADS_Assignment4_402111056.ipynb
+│
+├── Setup — seeds, device, imports (fully reproducible)
+│
+├── Part 1 — ML Pipelines                         (Adult Income)
+│   ├── 1A  pandas.pipe cleaning — custom schema validation + chained pure functions
+│   ├── 1B  sklearn Pipeline + ColumnTransformer (scale numeric · one-hot categorical)
+│   ├── 1C  Imputer comparison — Mean / Median / KNN / Iterative
+│   └── 1D  End-to-end pipeline + joblib save / load round-trip (with assert)
+│
+├── Part 2 — Handling Imbalanced Data             (Adult Income)
+│   ├── 2A  Random undersampling ×2 ratios + NearMiss + TomekLinks
+│   ├── 2B  Random oversampling
+│   ├── 2C  SMOTE — how it synthesises samples, and vs. simple oversampling
+│   └── 2D  Cost-sensitive learning (class_weight='balanced')
+│
+├── Part 3 — Variational Autoencoder              (MNIST)
+│   ├── 3A  MLP VAE — reparameterisation trick, BCE + KL loss
+│   ├── 3B  β-VAE sweep β ∈ {0.5, 1, 4} — reconstructions + prior samples
+│   └── 3C  Latent-space interpolation (3 → 8)
+│
+├── Part 4 — Generative Adversarial Network       (MNIST)
+│   ├── Generator + Discriminator (non-saturating G loss)
+│   ├── Samples across training epochs (fixed latents)
+│   └── Discussion — why mode collapse happens, why it's not guaranteed
+│
+├── Part 5 — Diffusion Model (DDPM)               (MNIST)
+│   ├── 5A  Minimal DDPM — small time-conditioned denoiser
+│   ├── 5B  Linear vs. cosine noise schedule (+ schedule plots)
+│   └── 5C  Diffusion vs. GAN comparison table
+│
+├── Part 6 — Explainable AI                       (MNIST CNN + Adult RandomForest)
+│   ├── 6A  Grad-CAM — heatmaps for correct + misclassified digits
+│   ├── 6B  SHAP (summary + waterfall) · LIME (superpixels) · ELI5 (permutation importance)
+│   └── Analysis — 3 misclassified digits: focus / cause / fix
+│
+└── Bonus — End-to-end comparison across stages + trade-offs
+```
+
+---
+
+## Datasets
+
+| Part(s)                    | Dataset                                                    | Why chosen                                                                                                                                       |
+| -------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1, 2, 6 (SHAP/ELI5)        | **Adult Income** (~48.8k rows, 14 mixed features, ~24% positive) | Has real missing values *and* genuine class imbalance, so one dataset serves Parts 1 and 2, and gives SHAP/ELI5 human-readable tabular features |
+| 3, 4, 5, 6 (Grad-CAM/LIME) | **MNIST** (70k 28×28 digits, 10 classes)                  | Small enough to train VAE / GAN / diffusion in minutes each, complex enough to actually *see* the differences between them, and mandated for the GAN |
+
+Both datasets are fetched automatically (`fetch_openml('adult')` and `torchvision.datasets.MNIST`) — no manual downloads.
+
+---
+
+## Part 1 — ML Pipelines: What is covered
+
+- **1A — `pandas.pipe`:** cleaning expressed as a top-to-bottom recipe of small *pure* functions (schema validation, de-duplication, whitespace stripping, outlier winsorising, target binarisation). Stateful transforms are deliberately kept **out** of `.pipe` and pushed into the sklearn pipeline where they can be fit on train only.
+- **1B — sklearn `Pipeline`:** a `ColumnTransformer` splits numeric (impute → scale) from categorical (impute → one-hot), so nothing leaks from test into train.
+- **1C — Imputer comparison:** Mean / Median / KNN / Iterative, all else held constant. **All four land on an identical F1 (0.653)** — and the notebook explains *why*: every missing value in this dataset lives in a categorical column, so the numeric imputer is a no-op. The lesson recorded is to check *where* missingness actually is before comparing imputers.
+- **1D — End-to-end:** the winning imputer is baked into a single fitted pipeline, saved with `joblib`, reloaded, and verified to produce identical predictions.
+
+## Part 2 — Handling Imbalanced Data: What is covered
+
+Model, preprocessing, and split are frozen so **only the resampling changes** — an apples-to-apples comparison scored on Precision / Recall / F1 / PR-AUC (accuracy is explicitly dropped as misleading on a 76/24 split).
+
+| Strategy                     | What it shows                                                        |
+| ---------------------------- | ------------------------------------------------------------------- |
+| Baseline (none)              | High precision, poor minority recall — the "predict majority" trap  |
+| Random undersample (r=0.5)   | **Best overall F1 (0.686)** — keeps precision while recovering recall |
+| Random undersample (r=1.0)   | More recall, lower precision                                         |
+| NearMiss v1                  | Aggressive — discards informative majority samples, PR-AUC drops to 0.646 |
+| TomekLinks                   | Gentle boundary cleaning                                            |
+| Random oversample            | Recall ↑ to ~0.85, precision ↓                                       |
+| SMOTE                        | ~tied with oversampling here + a worked explanation of the interpolation formula and when it *breaks* (disjoint clusters, one-hot columns) |
+| Class weights (`balanced`)   | One keyword, lands within noise of the resamplers — the go-to first move |
+
+## Part 3 — Variational Autoencoder: What is covered
+
+- **3A:** a compact MLP VAE with the **reparameterisation trick** (`z = μ + σ⊙ε`) and a BCE-reconstruction + KL loss.
+- **3B — β-VAE:** the same architecture trained at β ∈ {0.5, 1, 4}, comparing reconstructions *and* prior samples on one figure — the **reconstruction-vs-regularity trade-off** made visible (low β = sharp reconstructions / messy prior samples; high β = blurry reconstructions / cleaner samples).
+- **3C:** latent interpolation between an encoded 3 and 8 shows the latent space is **smooth** — intermediate points decode to plausible in-between digits, not noise.
+
+## Part 4 — GAN: What is covered
+
+- **Generator / Discriminator** as MLPs (LeakyReLU + Dropout in D, Tanh output on G with data normalised to [-1, 1]), trained with the **non-saturating** generator loss.
+- **Progress snapshots** use *fixed latents* so the same seeds can be watched sharpening across epochs — the single most informative GAN diagnostic.
+- **Discussion** answers both required questions: why mode collapse arises (no diversity term in the minimax objective, gradients flowing through a possibly-overconfident D) and why there's **no formal guarantee** it will occur (non-convex minimax dynamics have no general convergence theorem).
+
+## Part 5 — Diffusion Model: What is covered
+
+- **5A:** a minimal DDPM — forward `q_sample`, a small time-conditioned conv denoiser trained to predict the added noise, and the full reverse sampling loop.
+- **5B:** **linear vs. cosine** β-schedules, with the schedules themselves plotted (β_t and ᾱ_t) so it's clear the cosine schedule retains more signal through the middle timesteps.
+- **5C:** a structured **Diffusion vs. GAN** table (quality, diversity, training stability, sampling speed, likelihood, debuggability) with a written explanation of why diffusion traded slow sampling for training stability.
+
+## Part 6 — Explainable AI: What is covered
+
+A small CNN (>97% test accuracy in 3 epochs) stands in for the Assignment 3 CNN, then four complementary techniques — each chosen for the data type it actually suits:
+
+- **Grad-CAM** (6A) — gradient-weighted heatmaps over the last conv layer, for both correctly classified and misclassified digits.
+- **SHAP** (6B) — `summary` + `waterfall` plots on the tabular RandomForest, where these plots are designed to work (rather than forcing them onto raw pixels).
+- **LIME** (6B) — superpixel on/off explanations on the MNIST CNN.
+- **ELI5** (6B) — permutation importance on the tabular model.
+- **Misclassification analysis** — three wrong predictions dissected (what the model focused on, why it failed, and a concrete training-time fix such as augmentation, batch-norm, or a wider receptive field).
+
+## Bonus — End-to-End Comparison
+
+A consolidated before/after table across stages (baseline → class weights → SMOTE → undersampling → RandomForest) on the Adult dataset, using the notebook's own measured numbers. The write-up is honest about the result: **rebalancing a simple linear model outperformed switching to a heavier model here** (best F1 came from moderate undersampling, not the RandomForest), and it discusses trade-offs, the frozen-preprocessing limitation of saved pipelines, and why XAI shows model behaviour rather than ground truth.
+
+---
+
+## How to Run
+
+The notebook is self-contained and Colab-friendly:
+
+```bash
+# On Colab: Runtime → Change runtime type → T4 GPU, then Runtime → Run all.
+# The first cell installs the extras Colab doesn't ship with:
+pip install -q imbalanced-learn shap lime eli5
+```
+
+Run **top-to-bottom** — later cells reuse the MNIST loaders, the fitted preprocessor, and the trained models from earlier ones. Both datasets download automatically on first run.
+
+## Key Takeaways
+
+1. **Pipelines pay off immediately** the moment you need reproducibility or want to swap a component — and keeping stateful transforms inside the sklearn pipeline (not in `.pipe`) is what prevents leakage.
+2. **On imbalanced data, `class_weight='balanced'` is the highest-leverage first move** — one keyword, a large shift in the precision/recall balance — but the fanciest method (SMOTE) is not automatically the winner.
+3. **β directly controls the reconstruction-vs-generation trade-off** in a VAE, and you can *see* it in the samples.
+4. **GANs and diffusion aim at the same target from opposite directions** — GANs sample fast but train unstably; diffusion trains stably but samples slowly.
+5. **Different XAI techniques answer different questions** (Grad-CAM = *where*, SHAP = *how much / which direction*, LIME = *local surrogate*, ELI5 = *global dependence*) — using them together makes each more informative, and misclassification analysis is where XAI actually pays back the effort.
